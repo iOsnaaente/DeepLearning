@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 
 from matplotlib.image import imsave, imread
 from matplotlib import pyplot as plt
@@ -159,66 +158,21 @@ def new_generation(population, size, mutation_rate, w, h):
   
   return new_population[:size]
 
-# Precisamos da mesma quantidade de threads que pop_size
-from threading import Thread, Lock
 
-def compute_fitness_individual( individual, y_hat , triangle = 100):
-  chr, score = individual
-  if score is None:
-    img = get_phenotype( chr, triangle )
-    y = np.asarray(img, dtype=int)
-    score = fitness(y, y_hat)
-    new_individual = (chr, score)
-
-  return new_individual
-
-
-class Thredis ( Thread ):
+from threading import Thread
+class Trehdis ( Thread ):
   result = 0
-  img = 0
-  err = 0 
-  def __init__(self, ind, hat):
+  def __init__(self, param1, param2 ):
     Thread.__init__(self)
-    self.individual = ind
-    self.hat   = hat 
-
-  def get_fitness(self, y, y_hat):   
-    diff = (y - y_hat)**2 
-    self.err = np.sum(diff) / (y.shape[0]*y.shape[1]*y.shape[2])
-    
-  def get_pheno(self, triangles = 100 ):
-    chromosome = self.individual[0].copy()
-    self.img = Image.new('RGB', (H,W), BACKGROUND_COLOR )
-    drw = ImageDraw.Draw(self.img, 'RGBA')
-
-    for _ in range( triangles ):
-      triangle = list()
-      for _ in range(3):
-        x = chromosome.pop(0)
-        y = chromosome.pop(0)
-        triangle.append((y,x))
-      r = chromosome.pop(0)
-      g = chromosome.pop(0)
-      b = chromosome.pop(0)
-      a = chromosome.pop(0)
-      drw.polygon(triangle, fill=(r,g,b,a) )
-
-  def compute_fitness( self, y_hat, triangle = 100 ):
-    chr, score = self.individual
-    if score is None:
-      img = self.get_pheno( triangle )
-      y = np.asarray(img, dtype=int)
-      score = self.get_fitness(y, y_hat)
-      new_individual = (chr, score)
-    return new_individual
-
+    self.par1 = param1 
+    self.par2 = param2 
   def run (self):
-    self.result = self.compute_fitness( self.individual, self.hat )
-    if self.result == 0 :
-      self.result = (0,0)
+    self.result = compute_fitness( self.par1, self.par2 ) 
+  def get_result(self):
+    return self.result
 
 
-def genalg(w, h, y_hat, pop_size, elite_size, epochs, mutation_rate):
+def genalg(w, h, y_hat, pop_size, num_thr, elite_size, epochs, mutation_rate):
   count = 0 
   imgs = list()
   
@@ -229,29 +183,27 @@ def genalg(w, h, y_hat, pop_size, elite_size, epochs, mutation_rate):
   population = create_population(pop_size, w, h)
   fig = plt.figure()
 
+  time1 = time()
   for generation in range( epochs + 1 ):
 
-    time1 = time()
-
-    for ind in population:
-      t = Thredis( ind, y_hat )
+    thr = [ Trehdis( population, y_hat) for _ in range(num_thr) ]
+    for t in thr:
       t.start()
-      threads.append( t )
+    for t in thr:
+      t.join()
 
-    for i in threads:
-      i.join()
+    res = [ t.get_result() for t in thr ]
+    
+    fits = [ res[i][0][1] for i in range(num_thr) ]
+    
+    bigger = 999999999
+    for n, fit in enumerate( fits ) :
+      if fit < bigger:
+        bigger = fit
+        population = res[n]
+    
 
-    population = [] 
-    for t in threads:
-      if t.result == 0:
-        population.append( ([i for i in range(pop_size*4)], 9999999) )
-      else:
-        population.append( t.result )
-
-    population.sort( key = lambda x : x[1])
-    threads = []
-
-    if generation % 100 == 0:
+    if generation % 1000 == 0:
       chr, fit = population[0]
       img_gen = get_phenotype(chr)
       imgs.append(img_gen)
@@ -263,17 +215,22 @@ def genalg(w, h, y_hat, pop_size, elite_size, epochs, mutation_rate):
       print("Geração: ", generation, ", melhor: ", fit)
 
       plt.imshow(img_gen)
-      plt.savefig('D:\Desktop\git\DeepLearning\Algoritmo genético/Generation%sFit%2.10f.png'%(generation, fit), dpi =600)
+      plt.savefig('D:\Desktop\git\DeepLearning\Algoritmo genético/100Triangles_Generation%sFit%2.10f.png'%(generation, fit), dpi =600)
+      
+      print( time() - time1 )
+      time1 = time()
 
     elite = population[:elite_size]
     population = new_generation( population, pop_size - elite_size, mutation_rate, w, h) + elite 
-    time2 = time()
-    print( time2 - time1 )
+    
+
 
   return imgs, x, y
 
-images, x, y = genalg( W, H, y_hat, 100, 1, 100, 0.0025)
+images, x, y = genalg( W, H, y_hat, 10, 1, 2, 100000, 0.0025)
 
 plt.plot(x, y)
 #plt.imshow(images[-1])
 plt.show()
+
+
